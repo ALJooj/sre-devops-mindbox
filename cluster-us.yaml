@@ -1,0 +1,65 @@
+apiVersion: apps/v1 
+kind: Deployment  # 
+metadata:
+  name: nginx-deployment
+  labels:             # добавил лейбл для последующих фильтраций 
+    typ: deploy
+    region: us        # один из вариантов многозонального кластера - создать три деплоймента с разными лейблами регионов
+                      # Создание мультизонального кластера мне показалось возможным осуществить с помощью создания разных Деплоев с разными регионами
+spec:
+  selector:
+    matchLabels:
+      project: nginx-deployment   # создаю идентификатор  
+  template: 
+    metadata:
+      labels: 
+        project: nginx-deployment
+    spec: 
+      containers:
+      - name: some-container
+        image: nginx:1.25.4       # так как в задании не указано я выбрал случайный image
+        resources:
+          limits:
+            cpu: "1"              # так как в задании не указано я выбрал максимальное значение процессора как 1
+            memory: "128M"
+          requests:
+            cpu: "0.1"            # если по началу не будет нагрузки то нода будет поддерживать уровень 0.1 cpu
+            memory: "128M"        # память 128М
+        readinessProbe:           # добавил пробу потому что нужно будет понять когда приложение встанет
+          httpGet:                # изза того что использую image как apache, то выбрал httpGet с портом 80
+            path: / 
+            port: 80
+          initialDelaySeconds: 10 # время на запуск программы надо 5-10 секунд, чтобы не ошибиться 
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler     # добавил автоскейлер чтобы следить за нагрузкой и распределять ее
+metadata:
+  name: some-hpa
+  labels: 
+    typ: hpa
+spec:
+  scaleTargetRef:                 # подключил к деплою
+    apiVersion: apps/v1
+    kind: Deployment
+    name: nginx-deployment
+  minReplicas: 1                  #
+  maxReplicas: 4                  # в максимальную пиковая нагрузка потребуется 4 нода
+  metrics: 
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 10    # будем стремиться поддерживать среднюю загрузку процессора на уровне 10% во всех репликах 
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget         # чтобы увеличить стабильность и отказоустойчивость добавил компонент pdb
+metadata:
+  name: some-pdb
+  labels: 
+    typ: pdb
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      project: nginx-deployment
